@@ -1,5 +1,7 @@
 import os
 import requests
+from datetime import datetime
+from app import db
 
 class NotificationService:
     @staticmethod
@@ -46,7 +48,7 @@ class NotificationService:
         reading_pos = "1st Reading" if mass_assignments[0].id == assignment.id else "2nd Reading"
         
         message = (
-            f"*SM Proclaimers Ministry* 📖\n"
+            f"*SMACC Proclaimers Ministry* 📖\n"
             f"--------------------------\n"
             f"Hello *{proclaimer_name}*, you have been assigned as a proclaimer for the upcoming mass:\n\n"
             f"📅 *Date*: {mass_date}\n"
