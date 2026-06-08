@@ -2,6 +2,7 @@ from flask import Blueprint, jsonify, request
 from app.models import Proclaimer, Assignment, Mass
 from app.services.notifications import NotificationService
 from app import db
+import requests as req_lib
 
 notifications_bp = Blueprint('notifications', __name__, url_prefix='/api/notifications')
 
@@ -25,12 +26,77 @@ def notify_proclaimer(proclaimer_id):
     else:
         return jsonify({"error": "Failed to prepare notification"}), 500
 
+
+@notifications_bp.route('/bulk-notify', methods=['POST'])
+def bulk_notify():
+    """
+    Returns a SINGLE wa.me link whose message contains personalized assignments
+    for every proclaimer scheduled that month. Open once — notify all.
+    """
+    data = request.get_json()
+    month = data.get('month')
+    year = data.get('year')
+
+    if not month or not year:
+        return jsonify({"error": "month and year are required"}), 400
+
+    assignments = (
+        Assignment.query
+        .join(Mass)
+        .filter(
+            db.extract('month', Mass.date) == month,
+            db.extract('year', Mass.date) == year
+        )
+        .order_by(Mass.date, Mass.time)
+        .all()
+    )
+
+    if not assignments:
+        return jsonify({"error": "No assignments found for the given month/year"}), 404
+
+    # Build a single broadcast message listing all proclaimers
+    lines = [
+        f"*SMACC Proclaimers Ministry* 📖",
+        f"──────────────────────────",
+        f"📅 Proclaimer Assignments — {int(month):02d}/{year}",
+        f"──────────────────────────",
+        ""
+    ]
+
+    current_date = None
+    for a in assignments:
+        mass_date_str = a.mass.date.strftime('%A, %d %b %Y')
+        if a.mass.date != current_date:
+            current_date = a.mass.date
+            lines.append(f"🗓 *{mass_date_str}*")
+
+        p_name = a.proclaimer.name if a.proclaimer else "Unassigned"
+        # Determine reading position
+        mass_assignments = sorted(a.mass.assignments, key=lambda x: x.id)
+        reading_pos = "1st Reading" if mass_assignments[0].id == a.id else "2nd Reading"
+        mass_time = a.mass.time.strftime('%I:%M %p')
+        lines.append(f"  • {mass_time} — {p_name} ({reading_pos})")
+
+    lines += ["", "Please confirm your availability. God bless! 🙏"]
+
+    combined_message = "\n".join(lines)
+
+    # Single wa.me link — no phone number means it opens the contact chooser once
+    whatsapp_link = f"https://wa.me/?text={req_lib.utils.quote(combined_message)}"
+
+    return jsonify({
+        "message_text": combined_message,
+        "whatsapp_link": whatsapp_link,
+        "count": len(assignments)
+    }), 200
+
+
 @notifications_bp.route('/share-roster', methods=['POST'])
 def share_roster():
     data = request.get_json()
     month = data.get('month')
     year = data.get('year')
-    phone_number = data.get('phone_number') # Optional target
+    phone_number = data.get('phone_number')  # Optional target
     
     if not month or not year:
         return jsonify({"error": "Month and Year are required"}), 400
@@ -44,7 +110,7 @@ def share_roster():
         return jsonify({"error": "No roster found for the given month/year"}), 404
         
     # Format a professional roster message
-    roster_msg = f"📖 *Proclaimers Ministry Roster - {month}/{year}*\n\n"
+    roster_msg = f"📖 *SMACC Proclaimers Ministry*\nRoster — {int(month):02d}/{year}\n\n"
     current_date = None
     for a in assignments:
         if a.mass.date != current_date:
